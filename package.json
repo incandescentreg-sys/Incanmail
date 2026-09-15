@@ -1,0 +1,13 @@
+{
+  "name": "incanmail-bot",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "vercel-build": "echo build done",
+    "webhook": "node scripts/set-webhook.mjs"
+  },
+  "dependencies": {
+    "@upstash/redis": "^1.34.0"
+  }
+}

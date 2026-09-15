@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Incanmail</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <style>
+    :root { --bg: #ffffff; --card: #f7f8fa; --text: #101418; --muted: #707579; --accent: #2ea6ff; --danger: #ec3942; --border: #e6e7e9; }
+    @media (prefers-color-scheme: dark) {
+      :root { --bg: #1c1f23; --card: #2b2f33; --text: #f2f3f5; --muted: #9aa0a6; --accent: #6ab3f3; --border: #3a3f44; }
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--text); padding: 16px; min-height: 100vh; }
+    .hidden { display: none !important; }
+    h1 { font-size: 22px; margin-bottom: 4px; }
+    .sub { color: var(--muted); font-size: 14px; margin-bottom: 16px; }
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 14px; margin-bottom: 12px; }
+    .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; width: 100%; padding: 12px; border: none; border-radius: 12px; background: var(--accent); color: #fff; font-size: 16px; font-weight: 600; cursor: pointer; }
+    .btn:active { opacity: .8; }
+    .btn.secondary { background: var(--card); color: var(--text); border: 1px solid var(--border); }
+    .btn.small { width: auto; padding: 8px 14px; font-size: 14px; }
+    .btn.danger { background: var(--danger); }
+    .addr { font-size: 19px; font-weight: 700; word-break: break-all; user-select: all; }
+    .row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+    .muted { color: var(--muted); font-size: 13px; }
+    .timer { font-variant-numeric: tabular-nums; font-weight: 700; }
+    ul { list-style: none; }
+    li { padding: 12px 0; border-bottom: 1px solid var(--border); cursor: pointer; }
+    li:last-child { border-bottom: none; }
+    li .from { font-size: 13px; color: var(--muted); }
+    li .subject { font-size: 15px; font-weight: 600; margin-top: 2px; }
+    .empty { text-align: center; color: var(--muted); padding: 32px 0; }
+    .toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: var(--text); color: var(--bg); padding: 10px 18px; border-radius: 24px; font-size: 14px; z-index: 99; opacity: 0; transition: opacity .3s; }
+    .toast.show { opacity: 1; }
+    .badge { display: inline-block; background: var(--danger); color: #fff; border-radius: 10px; padding: 1px 7px; font-size: 11px; font-weight: 700; margin-left: 6px; }
+    .msg-body { font-size: 14px; line-height: 1.5; margin-top: 10px; white-space: pre-wrap; word-break: break-word; }
+    .msg-body iframe { width: 100%; border: none; }
+    .spinner { border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; width: 28px; height: 28px; animation: spin 1s linear infinite; margin: 24px auto; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <h1>Incanmail</h1>
+  <p class="sub">Временная почта для регистраций и подозрительных сайтов</p>
+
+  <div id="screen-main">
+    <div id="no-address" class="card hidden">
+      <p class="muted" style="margin-bottom:12px">Создай временный адрес — он самоуничтожится через 60 минут.</p>
+      <button class="btn" id="btn-create">Создать адрес</button>
+    </div>
+
+    <div id="has-address" class="hidden">
+      <div class="card">
+        <div class="row">
+          <span class="addr" id="addr-text">–</span>
+        </div>
+        <div class="row" style="margin-top:10px">
+          <span class="muted">Самоуничтожится через</span>
+          <span class="timer" id="addr-timer">60:00</span>
+        </div>
+        <div class="row" style="margin-top:12px">
+          <button class="btn small" id="btn-copy">Копировать</button>
+          <button class="btn small secondary" id="btn-delete">Удалить</button>
+        </div>
+      </div>
+
+      <div class="row" style="margin-bottom:8px">
+        <h2 style="font-size:17px">Входящие</h2>
+        <button class="btn small secondary" id="btn-refresh">Обновить</button>
+      </div>
+      <div class="card" id="inbox"><div class="empty">Загрузка…</div></div>
+    </div>
+  </div>
+
+  <div id="screen-message" class="hidden">
+    <div class="row" style="margin-bottom:12px">
+      <button class="btn small secondary" id="btn-back">Назад</button>
+    </div>
+    <div class="card">
+      <div class="subject" id="msg-subject" style="font-size:17px;font-weight:700">–</div>
+      <div class="from" id="msg-from" style="margin-top:4px">–</div>
+      <div id="msg-body" class="msg-body"></div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script>
+    const tg = window.Telegram?.WebApp;
+    if (tg) { tg.ready(); tg.expand(); }
+
+    let current = null;      // текущий адрес {id, address, expiresAt}
+    let pollTimer = null;
+
+    const $ = id => document.getElementById(id);
+    const show = (id, on) => $(id).classList.toggle('hidden', !on);
+
+    async function api(path, opts = {}) {
+      const headers = { 'Content-Type': 'application/json', 'X-Telegram-Init-Data': tg ? tg.initData : '' };
+      const r = await fetch(path, { ...opts, headers });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(data.error || r.statusText);
+      return data;
+    }
+
+    function toast(msg) {
+      const t = $('toast');
+      t.textContent = msg;
+      t.classList.add('show');
+      setTimeout(() => t.classList.remove('show'), 2200);
+    }
+
+    function fmtTimer(expiresAt) {
+      const diff = Math.max(0, new Date(expiresAt) - Date.now());
+      const m = Math.floor(diff / 60000), s = Math.floor(diff % 60000 / 1000);
+      return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+    }
+
+    function tick() {
+      if (current) {
+        $('addr-timer').textContent = fmtTimer(current.expiresAt);
+        if (new Date(current.expiresAt) <= Date.now()) { stopPolling(); loadScreen(); }
+      }
+    }
+    setInterval(tick, 1000);
+
+    async function loadScreen() {
+      try {
+        const list = await api('/api/addresses');
+        if (list.length) {
+          current = list[0];
+          $('addr-text').textContent = current.address;
+          show('no-address', false); show('has-address', true);
+          await loadInbox();
+          startPolling();
+        } else {
+          current = null;
+          stopPolling();
+          show('no-address', true); show('has-address', false);
+        }
+      } catch (e) { toast('Ошибка: ' + e.message); }
+    }
+
+    async function createAddress() {
+      $('btn-create').disabled = true;
+      try {
+        const { domains } = await api('/api/domains').then(d => ({ domains: d }));
+        const domain = domains[0];
+        if (!domain) throw new Error('нет доменов');
+        current = await api('/api/address', { method: 'POST', body: JSON.stringify({ domain }) });
+        $('addr-text').textContent = current.address;
+        show('no-address', false); show('has-address', true);
+        await loadInbox();
+        startPolling();
+        tg?.HapticFeedback?.notificationOccurred('success');
+      } catch (e) { toast('Ошибка: ' + e.message); }
+      $('btn-create').disabled = false;
+    }
+
+    async function loadInbox() {
+      const box = $('inbox');
+      if (!current) return;
+      box.innerHTML = '<div class="spinner"></div>';
+      try {
+        const msgs = await api('/api/messages?id=' + current.id);
+        if (!msgs.length) {
+          box.innerHTML = '<div class="empty">Пока нет писем.<br>Отправь письмо на этот адрес.</div>';
+          return;
+        }
+        const ul = document.createElement('ul');
+        for (const m of msgs) {
+          const li = document.createElement('li');
+          const enc = encodeURIComponent(m.id);
+          li.innerHTML = `<div class="from">${esc(m.from)} · ${esc(fmtDate(m.createdAt))}</div><div class="subject">${esc(m.subject)}</div>`;
+          li.onclick = () => openMessage(enc, m.subject);
+          ul.appendChild(li);
+        }
+        box.innerHTML = '';
+        box.appendChild(ul);
+      } catch (e) { box.innerHTML = `<div class="empty">Ошибка: ${esc(e.message)}</div>`; }
+    }
+
+    async function openMessage(encId, subject) {
+      show('screen-main', false); show('screen-message', true);
+      $('msg-subject').textContent = subject || '(без темы)';
+      $('msg-body').innerHTML = '<div class="spinner"></div>';
+      try {
+        const msg = await api('/api/message?addr=' + current.id + '&msgId=' + encId);
+        $('msg-from').textContent = msg.from?.address || '?';
+        const body = msg.html?.length > msg.text?.length ? msg.html[0] : (msg.text?.[0] || '');
+        $('msg-body').innerHTML = sanitizeBody(body);
+      } catch (e) { $('msg-body').innerHTML = esc('Ошибка: ' + e.message); }
+    }
+
+    function sanitizeBody(html) {
+      if (!html) return '<span class="muted">(пустое письмо)</span>';
+      if (html.trim().startsWith('<')) {
+        const sandbox = document.createElement('iframe');
+        sandbox.srcdoc = html;
+        return '<iframe sandbox="" style="width:100%;min-height:400px" srcdoc="' + escAttr(html) + '"></iframe>';
+      }
+      return esc(html);
+    }
+
+    function startPolling() {
+      stopPolling();
+      pollTimer = setInterval(loadInbox, 15000);
+    }
+    function stopPolling() { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } }
+
+    function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+    function escAttr(s) { return esc(s).replace(/\n/g, '&#10;'); }
+    function fmtDate(iso) { try { return new Date(iso).toLocaleString('ru-RU', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' }); } catch { return ''; } }
+
+    $('btn-create').onclick = createAddress;
+    $('btn-copy').onclick = () => { if (current) { navigator.clipboard?.writeText(current.address); toast('Адрес скопирован'); } };
+    $('btn-delete').onclick = async () => {
+      if (!current) return;
+      try { await api('/api/address?id=' + current.id, { method: 'DELETE' }); current = null; toast('Адрес удалён'); loadScreen(); }
+      catch (e) { toast('Ошибка: ' + e.message); }
+    };
+    $('btn-refresh').onclick = () => loadInbox();
+    $('btn-back').onclick = () => { show('screen-main', true); show('screen-message', false); loadInbox(); };
+
+    loadScreen();
+  </script>
+</body>
+</html>
