@@ -7,7 +7,5 @@
     "vercel-build": "echo build done",
     "webhook": "node scripts/set-webhook.mjs"
   },
-  "dependencies": {
-    "@upstash/redis": "^1.34.0"
-  }
+  "dependencies": {}
 }

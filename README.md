@@ -39,6 +39,7 @@ scripts/
    |---|---|
    | `BOT_TOKEN` | токен от BotFather |
    | `APP_URL` | URL деплоя, напр. `https://incanmail.vercel.app` |
+   | `SETUP_KEY` | секретный ключ для одноразовой настройки вебхука |
    | `UPSTASH_REDIS_REST_URL` | из дашборда Upstash |
    | `UPSTASH_REDIS_REST_TOKEN` | из дашборда Upstash |
    | `ADDRESS_TTL_MINUTES` | (опц.) время жизни адреса, по умолч. 60 |
@@ -50,9 +51,9 @@ scripts/
    ```
 
 5. **Настрой вебхук** (после деплоя):
-   ```bash
-   BOT_TOKEN=... WEBHOOK_URL=https://твой-проект.vercel.app/api/bot npm run webhook
-   ```
+   - Вариант A — с сервера Vercel (работает, даже если Telegram API блокируется локально):
+     открой в браузере `https://твой-проект.vercel.app/api/setup?key=ТВОЙ_SETUP_KEY`
+   - Вариант B — локально: `BOT_TOKEN=... WEBHOOK_URL=https://твой-проект.vercel.app/api/bot npm run webhook`
 
 6. **В BotFather:** `/mybots` → твой бот → **Bot Settings** → **Menu Button** → укажи URL `https://твой-проект.vercel.app`. Или просто отправь боту `/start` и нажми кнопку.
 
